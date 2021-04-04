@@ -1,0 +1,7 @@
+name: "Hubbell_CEBP"
+output_dir: "."
+navbar:
+  title: Modeled Reductions in Late-stage Cancer with a MCED Test
+  left:
+    - text: "Home"
+      href: index.html
