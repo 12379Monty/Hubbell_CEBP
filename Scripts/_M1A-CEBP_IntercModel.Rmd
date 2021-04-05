@@ -128,6 +128,10 @@ if(sum(grepl(FN, list.files()))==0) stop("Check FN")
  suppressMessages(dir.create(tables_DIR, recursive=T))
  #opts_chunk$set(fig.path=tables_DIR)
  
+ reports_DIR <- file.path(WRKDIR, 'Scripts', 'reports/M1A/')
+ suppressMessages(dir.create(reports_DIR, recursive=T))
+ #opts_chunk$set(fig.path=reports_DIR)
+ 
  # need a local copy of help_DIR
  #help_DIR <- file.path(WRKDIR, 'help_files')
  help_DIR <- file.path('.', 'help_files')
@@ -721,7 +725,7 @@ run_excluded_model <- function(excluded_source){
 dwell_standard_model <- load_seer_dwell_model()
 
 #read in standard performance numbers
-base_detect_code <- "CCGA2"
+BASE_DETECT_CODE <- "CCGA2"
 
 #load and clean manuscript sensitivity
 iso_sens_joined <- read_tsv(
@@ -850,14 +854,77 @@ text_options_df <- all_options_df %>%
   mutate(mode_found=c("cfdna","soc")[found_clinical],
          aggressive=c("MIS","VSlow","Slow","Fast","AggFast")[dw_scenario+1])
 
-### UP TO HERE !!!
-reports_DIR <- ...
-
 #write to permanent archive of current data
 write_tsv(text_options_df,
- path=file.path(tables_DIR, ("reports/%s_%s_text_data_set.tsv",date_code,base_detect_code)) 
+ file.path(reports_DIR, paste0(DATE_CODE, BASE_DETECT_CODE, "_text_data_set.tsv")))
+
+```
+
+END - 01_generate_basic_interception_scenarios.R
+
+# summaries for dwell time groups
+
+generate useful summaries for dwell time groups
+that will be used later for making tables
 
 
+also used for tables in supplemental data
+
+```{r m1a-utility-describe-dwell-groups}
+
+# NOT SURE WHY WE NEED TO REPEAT THIS
+dwell_standard_model <- load_seer_dwell_model()
+
+#human readable short description
+text_levels<-c("MIS","VSlow","Slow","Fast","AggFast")
+
+
+text_cancer_groups<-dwell_standard_model %>% 
+  group_by(dwell_group) %>% 
+  summarize(cancer=paste(unique(Cancer),collapse=",")) %>%
+  ungroup()
+
+text_duration_groups<-dwell_standard_model %>% 
+  group_by(dwell_group,scenario,Stage) %>% 
+  summarize(mdwell=dwell[1]) %>%
+  ungroup() %>%
+  pivot_wider(names_from=Stage,values_from=mdwell) %>%
+  mutate(scenario=text_levels[scenario+1]) 
+
+write_tsv(text_cancer_groups, 
+ file.path(reports_DIR, "text_cancer_groups.tsv"))
+
+write_tsv(text_duration_groups, 
+ file.path(reports_DIR, "text_duration_groups.tsv"))
+
+compact_duration_groups<-text_duration_groups %>%
+  mutate(text_duration=paste(I,II,III,IV,sep=",")) %>%
+  select(dwell_group,scenario,text_duration) %>%
+  pivot_wider(names_from=scenario,values_from=text_duration)
+
+write_tsv(compact_duration_groups,
+ file.path(reports_DIR, "compact_duration_groups.tsv"))
+
+summary_duration_groups<-dwell_standard_model %>%
+  group_by(scenario,Stage) %>% 
+  summarize(dwell_range=paste(c(min(dwell),max(dwell)),collapse="-")) %>%
+  ungroup() %>%
+  filter(Stage=="I") %>% 
+  mutate(aggressive=text_levels[scenario+1]) %>%
+  bind_rows(tibble(scenario=0,Stage="I",dwell_range="NONE",aggressive="MIS")) %>%
+  arrange(scenario)
+
+write_tsv(summary_duration_groups,
+ file.path(reports_DIR, "summary_duration_groups.tsv"))
+
+```
+
+
+# Generate tables
+
+From scripts/02_generate_tables.R
+# STOP HERE
+This is getting to be too messy....
 
 # References
 <div id="refs"></div>

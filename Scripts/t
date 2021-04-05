@@ -1,4 +1,803 @@
 
+<!--
+<style type="text/css">
+
+body{ /* Normal  */ 
+ font-size: 16px; 
+}
+td {  /* Table  */ 
+ font-size: 12; 
+}
+h1.title { 
+ font-size: 28px; color: DarkGreen; 
+}
+h1 { /* Header 1 */ 
+ font-size: 24px; color: DarkBlue; 
+}
+h2 { /* Header 2 */ 
+ font-size: 18px; color: DarkBlue; 
+}
+h3 { /* Header 3 */ 
+ font-size: 18px;
+ font-family: "Times New Roman", Times, serif;
+ color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+-->
+
+
+```{r m1a-GlobalOptions, results="hide", include=FALSE, cache=FALSE}
+knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
+options(knitr.table.format = 'html')
+
+#knitr::dep_auto()
+```
+<!-- ######################################################################## -->
+
+
+```{r m1a-Prelims, include=FALSE, echo=FALSE, results='hide', message=FALSE} 
+
+ FN <- "_M1A-CEBP_IntercModel"
+if(sum(grepl(FN, list.files()))==0) stop("Check FN")
+
+ suppressMessages(require(rmarkdown))
+ suppressMessages(require(knitr))
+ options(stringsAsFactors=F) 
+
+
+ suppressPackageStartupMessages(require(edgeR))
+
+ suppressPackageStartupMessages(require(methods))
+ suppressPackageStartupMessages(require(bookdown))
+
+ suppressPackageStartupMessages(require(data.table))
+ options(datatable.fread.datatable=F)
+
+ suppressPackageStartupMessages(require(plyr))
+ suppressPackageStartupMessages(require(dplyr))
+ suppressPackageStartupMessages(require(magrittr))
+
+ # Shotcuts for knitting and redering while in R session (Invoke interactive R from R/Scripts folder)
+ kk <- function(n='') knitr::knit2html(paste("t", n, sep=''), envir=globalenv(),
+       output=paste(FN,".html", sep=''))
+
+ rr <- function(n='') rmarkdown::render(paste("t", n, sep=''), envir=globalenv(),
+       output_file=paste(FN,".html", sep='')) ##, output_dir='Scripts')
+
+ bb <- function(n='') browseURL(paste(FN,".html", sep=''))
+
+ # The usual shotcuts
+ zz <- function(n='') source(paste("t", n, sep=''))
+
+
+ WRKDIR <- '..'
+ if(!file.exists(WRKDIR)) stop("WRKDIR ERROR", WRKDIR)
+
+ # do once
+
+ # Shotcuts for knitting and redering while in R session
+ kk <- function(n='') knitr::knit2html(paste("t", n, sep=''), envir=globalenv(),
+       output=paste('',FN,".html", sep=''))
+
+ rr <- function(n='') render(paste("t", n, sep=''), envir=globalenv(),
+       output_file=paste(FN,".html", sep=''), output_dir='Scripts')
+
+ bb <- function(n='') browseURL(paste('',FN,".html", sep=''))
+
+ # The usual shorcuts
+ zz <- function(n='') source(paste('', "t", n, sep=''))
+
+ # file rmarkdown file management options: cache, figures
+ cache_DIR <- file.path(WRKDIR, 'Scripts', 'cache/M1A/')
+ suppressMessages(dir.create(cache_DIR, recursive=T))
+ opts_chunk$set(cache.path=cache_DIR)
+
+ figures_DIR <- file.path(WRKDIR, 'Scripts', 'figures/M1A/')
+ suppressMessages(dir.create(figures_DIR, recursive=T))
+ opts_chunk$set(fig.path=figures_DIR)
+
+ tables_DIR <- file.path(WRKDIR, 'Scripts', 'tables/M1A/')
+ suppressMessages(dir.create(tables_DIR, recursive=T))
+ #opts_chunk$set(fig.path=tables_DIR)
+ 
+ reports_DIR <- file.path(WRKDIR, 'Scripts', 'reports/M1A/')
+ suppressMessages(dir.create(reports_DIR, recursive=T))
+ #opts_chunk$set(fig.path=reports_DIR)
+ 
+ # need a local copy of help_DIR
+ #help_DIR <- file.path(WRKDIR, 'help_files')
+ help_DIR <- file.path('.', 'help_files')
+ suppressMessages(dir.create(help_DIR, recursive=T))
+ 
+ temp_DIR <- file.path(WRKDIR, 'temp_files')
+ suppressMessages(dir.create(temp_DIR, recursive=T))
+
+```
+<!-- ######################################################################## -->
+
+
+*** 
+```{r m1a-utilityFns, echo=FALSE}
+ # Here we define some utility functions
+source('utilityFns.r')
+source('Mymva.r')
+
+```
+<!-- ######################################################################## -->
+
+
+***
+
+# Abstract 
+
+Hubbel et al. (2021) [@Hubbell:2021aa] evaluate the impact of a
+MCED test in a representative population on overall cancer mortality
+and concluce that the aggregate potential to improve public health is significant.
+
+In this script, we reporduce these results using code 
+available at https://github.com/grailbio-publications/Hubbell_CEBP_InterceptionModel.
+
+<br/>
+
+# Set parameters 
+
+```{r m1a-set-params, cache=F}
+
+#current output files generated from this version
+DATE_CODE <- "20201008"
+
+#if input data has been prepared, draw from this date
+#what date does the SEER draw+sensitivity come from?
+INPUT_DATE_CODE <- "20201008"
+
+#date code for SEER draw
+SOURCE_SEER_DATE_CODE <- "20201008"
+
+#if basic interception model has been run, draw from this version
+#what does the archive of all interception come from?
+SOURCE_DATE_CODE <- "20201008"
+
+```
+
+* DATE_CODE: `r DATE_CODE`  
+* INPUT_DATE_CODE: `r INPUT_DATE_CODE`  
+* SOURCE_SEER_DATE_CODE: `r SOURCE_SEER_DATE_CODE`  
+* SOURCE_DATE_CODE: `r SOURCE_DATE_CODE`  
+
+<br/>
+
+# Pre-processing
+
+The output of this section is a data file containing
+per-cancer-type-per-stage-incidence,survival,non-decreasing sensitivity.
+
+<!-- From prep_input_data/a0_prep_sensitivity_values.R -->
+
+## Retrieve Liu et al. (2020) [@Liu:2020aa] information
+
+Retrieve Liu et al. (2020) [@Liu:2020aa] information
+and preprocess to generate isotonic sensitivity by stage.
+
+Cross-validated data for estimates of individual cancer sensitivity
+are used for individual cancer sensitivity estimates.
+
+```{r m1a-retrieve-sens, cache=T, cache.vars=c('tStage','fullCcga2TrainSens.frm')}
+
+suppressPackageStartupMessages(require(tidyverse))
+suppressPackageStartupMessages(require(Iso))
+
+
+rawCcga2TrainSens.frm <- 
+ as.data.frame(data.table::fread("../extData/20200113_external_train_sens.csv"))
+
+tStage=c("I","II","III","IV","No Stage")
+
+#fill in missing entries
+fullCcga2TrainSens.frm <- rawCcga2TrainSens.frm %>%
+  select(Cancer=cancer_type_tfl,
+         Stage=cstage,
+         n=total_cancers,
+         c=detec_cancers
+   ) %>%
+  complete(Cancer,Stage=tStage,fill=list(c=0,n=0))
+
+DT::datatable(fullCcga2TrainSens.frm)
+
+```
+
+Fix sensitivity with isotonic regression within each cancer type.
+
+```{r m1a-isotone-reg, cache=T, cache.vars='ccga2TrainManuscriptIsoSens.frm'}
+
+#isotone regression for sensitivity by stage
+isotoneFix.f <- function(Sens,Stage,Num){
+  out_val <- Sens
+  ndx <- match(tStage,Stage) #numbers from 1:5, natural ordering
+  good_ndx <- ndx[!is.na(ndx)]
+
+  if (length(good_ndx)>1){
+    #need stages I-IV only in order
+    y <- Sens[good_ndx]
+    w <- Num[good_ndx]
+    val <- Iso::pava(y,w)
+    out_val[good_ndx] <- val #put back
+  }
+  out_val
+}
+
+DEBUG <- function() {
+
+ccga2_train_manuscript_iso_sens <- fullCcga2TrainSens.frm %>%
+  mutate(sensitivity=case_when(n>0 ~ c/n,
+                               TRUE ~ 0.0)) %>%
+  group_by(Cancer) %>%
+  mutate(original_sens = sensitivity,
+         sens=isotoneFix.f(sensitivity,Stage,n)) %>%
+  ungroup() %>%
+  group_by(Cancer) %>%
+  mutate(NoStageDetect=(sum(n[Stage=="No Stage"])>0))  %>%
+  ungroup() %>%
+  filter((!NoStageDetect & Stage!="No Stage") | (NoStageDetect & Stage=="No Stage")) %>%
+  select(Cancer,Stage,c,n,original_sens,sens) %>%
+  mutate(Stage=case_when(Stage=="No Stage" ~ "NotStaged",
+                         TRUE ~ Stage))
+
+}
+
+ccga2TrainManuscriptIsoSens.frm <- do.call('rbind', lapply(split(fullCcga2TrainSens.frm,
+ fullCcga2TrainSens.frm$Cancer), function(Cancer.frm) {
+   Cancer.frm$OrigSens <- with(Cancer.frm, ifelse(n>0, c/n, 0))
+   Cancer.frm$Sens <- with(Cancer.frm, isotoneFix.f(OrigSens, Stage, n))
+
+   # This is kind of twisted (some cancers are not staged)
+   StagedCount <- with(Cancer.frm, sum(n[Stage != "No Stage"]))
+   if(StagedCount == 0){
+    Cancer.frm <- Cancer.frm %>% dplyr::filter(Stage =="No Stage") %>%
+    dplyr::mutate(Stage="NotStaged")
+   } else
+    Cancer.frm <- Cancer.frm %>% dplyr::filter(Stage != "No Stage")
+
+   Cancer.frm}))
+
+### THE TWO ARE NOT EXACTLY THE SAME ...
+
+write_tsv(ccga2TrainManuscriptIsoSens.frm, 
+file.path(tables_DIR, 'ccga2TrainManuscriptIsoSens.tab'))
+
+```
+
+<!-- From prep_input_data/a1_construct_imputed_SEER_draw.R -->
+
+## Merge SEER18 data
+
+
+#DATE_CODE<-"20200520"
+
+```{r m1a-merge-seer, cache=T, cache.varsc=c('totalSeerDraw.frm')}
+
+SEER_PATH <- "../extData/SEER_Draw_Interception_Manuscript_20200728.xlsx"
+
+#should make sure to output the raw data tables from the spreadsheet for future use
+stageAairData.frm <- as.data.frame(
+         readxl::read_excel(SEER_PATH,
+                            sheet="Incidence",
+                            range="A2:E126",
+                            col_names=c("SEER_Draw","Stage","IR","Count","Population"))
+     )
+
+
+stageCssData.frm <- as.data.frame(
+        readxl::read_excel(SEER_PATH,
+                           sheet="CSS",
+                           range="A4:E2503",
+                           col_names=c("SEER_Draw","Stage","TIME","N","CSS"),
+                           guess_max=5000)
+   )
+
+#filter out "ERROR" codes in SEER results and turn them into NA values
+#and return CSS to double type
+
+stageCssData.frm <- stageCssData.frm %>%
+  dplyr::mutate(CSS=ifelse(grepl("ERROR",CSS), NA, CSS)) 
+stageCssData.frm$CSS <- as.numeric(stageCssData.frm$CSS)
+
+
+stageCssFilteredData.frm <- stageCssData.frm %>%
+  dplyr::mutate(Survival=CSS) %>%
+  dplyr::filter(TIME=="60 mo")
+
+stageJointFiltered.frm <- merge(
+  stageAairData.frm, stageCssFilteredData.frm, all.x=T) %>%
+  select(SEER_Draw,Stage,IR,Survival)###,Count,Population)
+
+#have to deal with these cancers specially
+HARD_CANCERS <- c("Lymphoid Leukemia","Myeloid Neoplasm","Plasma Cell Neoplasm","[OTHER]")
+
+#okay, deal with typical cases where stage exists, and unknown/missing can be imputed sensibly
+softStageJointFiltered.frm <- stageJointFiltered.frm %>%
+  dplyr::filter(!(SEER_Draw %in% HARD_CANCERS)) 
+
+# UR for SEER_Draw == sum(IR) for Stage=="Unknown/missing"
+THIS.IS.STANGE <- function() {
+unkSoftStageJointFiltered.frm <- softStageJointFiltered.frm %>%
+  dplyr::filter(Stage=="Unknown/missing") %>%
+  dplyr::group_by(SEER_Draw) %>%
+  dplyr::summarize(UR=sum(IR,na.rm=TRUE)) %>%
+  dplyr::ungroup()
+}
+# REPLACE WITH THIS
+unkSoftStageJointFiltered.frm  <- softStageJointFiltered.frm %>%
+  dplyr::filter(Stage=="Unknown/missing") %>%
+  dplyr::rename(UR=IR) %>%
+  dplyr::select(SEER_Draw, UR)
+
+
+tStage=c("I","II","III","IV","Unknown/missing")
+
+# WHAT IS THIS IMPUTATION???
+imputedSoftStageJointFiltered.frm <- as.data.frame(
+  merge(
+  softStageJointFiltered.frm %>% dplyr::filter(Stage %in% tStage[1:4]),
+  unkSoftStageJointFiltered.frm, all.x=T)  %>%
+  dplyr::group_by(SEER_Draw) %>%
+  dplyr::mutate(URX=UR*IR/sum(IR,na.rm=TRUE)) %>%
+  dplyr::mutate(URX=replace_na(URX,0.0)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(IR=IR+URX) %>%
+  dplyr::select(-UR,-URX)
+)
+
+
+#unstaged and expected not to be staged
+#need to up-impute "staged" to "notstaged" for lymphoid leukemia
+#because we don't have by-stage sensitivities that are relevant to those entries in SEER
+#rate is relatively small
+unstagedJointFiltered.frm <- stageJointFiltered.frm %>%
+  dplyr::filter(SEER_Draw %in% HARD_CANCERS[1:3]) %>%
+  dplyr::group_by(SEER_Draw) %>%
+  dplyr::summarize(
+    IR=sum(IR,na.rm=TRUE),
+    Survival=Survival[Stage=="Unknown/missing"]) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Stage="NotStaged") %>%
+  dplyr::select(SEER_Draw,Stage,IR,Survival)
+
+#other - heterogenous group so cannot impute unstaged to staged
+#also no sensible group-level sensitivity
+#but do need incidence and survival data
+otherJointFiltered.frm <- stageJointFiltered.frm %>%
+  filter(SEER_Draw=="[OTHER]") %>%
+  mutate(Stage=case_when(Stage!="Unknown/missing" ~ Stage,
+                         TRUE ~ "NotStaged"))
+
+totalJointFiltered.frm <- rbind(
+  imputedSoftStageJointFiltered.frm,
+  unstagedJointFiltered.frm,
+  otherJointFiltered.frm)
+
+totalSeerDraw.frm <- merge(
+ totalJointFiltered.frm,
+ stageAairData.frm %>% dplyr::rename(origIR=IR),
+ by=c("SEER_Draw", "Stage"), all.x=T)
+
+#output imputed SEER data
+write_tsv(totalSeerDraw.frm,
+  file.path(tables_DIR, paste0(DATE_CODE, "_total_seer_draw.tsv")))
+
+DT::datatable(totalSeerDraw.frm)
+
+```
+
+
+```{r m1a-merge-iso, cache=T, cache.vars=c('isoTotalSeerDraw.frm')}
+###<!-- From prep_input_data/a2_join_seer_to_sensitivity.R -->
+
+
+isoTotalSeerDraw.frm <- merge(
+  totalSeerDraw.frm,
+  ccga2TrainManuscriptIsoSens.frm %>%
+              mutate(SEER_Draw=Cancer)) %>% 
+  dplyr::mutate(
+   Cancer=replace_na(Cancer,"NotFound"),
+   c=replace_na(c,0),
+   n=replace_na(n,0),
+   sens=replace_na(Sens,0.0),
+   OrigSens=replace_na(OrigSens,0.0)) %>%
+  select(SEER_Draw,Stage,IR,Survival,c,n,sens) %>%
+  rename(Cancer=SEER_Draw)
+
+#data all joined and written using current date code output
+write_tsv(isoTotalSeerDraw.frm,
+  file.path(tables_DIR, paste0(DATE_CODE,"_iso_seer_manuscript.tsv")))
+
+```
+
+# Basic interception model scenarios
+
+Generate the basic scenarios
+and models whatever cancer incidence is supplied: currently uses all cancer
+
+* Idealized screening, dwell scenarios 1-4, with annual screening, prevalent and incident results  
+
+* generate the big data frame that allows slicing/dicing the data 
+for figure production in the paper    
+
+* write the big data frame to a file to ensure summary stats start from a fixed item.  
+
+## Define functions: Standard dwell model {-}
+
+```{r m1a-load-seer-dwell-model}
+
+load_seer_dwell_model <- function(origin_host_dir="../extData"){
+
+  xStage<-c("I","II","III","IV")
+
+  dwell_model_group_df <-
+  read_tsv(sprintf("%s/20200728_dwell_time_groups.tsv",origin_host_dir))
+
+  dwell_model_timing_df <- 
+  read_tsv(sprintf("%s/20200728_dwell_group_timing.tsv",origin_host_dir))
+
+  dwell_model_all_df <- dwell_model_group_df %>%
+    rename(dwell_group=group) %>%
+    full_join(dwell_model_timing_df %>% rename(dwell_group=group)) %>%
+    mutate(number_stage=match(Stage,xStage))
+
+  dwell_model_all_df
+}
+
+```
+
+## Define functions: Slip rate from model {-}
+
+exact: integrate over those missed during a screening interval
+see supplemental information for argument that this function is appropriate
+
+```{r ma2-slip-rate-from-model}
+
+
+integrate_slip_rate <- function(screen_interval, weibull_shape, dwell){
+  # slip rate
+  # yield of escape = integral cumululate distribution function F(t), 0<t<screen_interval
+  # mean of weibull = scale*gamma(1+1/shape)
+  dwell_scale <- dwell/gamma(1+1/weibull_shape)
+  tiny_delta <- 365
+  #trapezoidal integration
+  days_low <- seq(0,screen_interval*tiny_delta-1,by=1)/tiny_delta
+  days_hi <- days_low+1/tiny_delta
+
+  F_by_day <- 0.5*(
+   pweibull(days_low, shape=weibull_shape, scale=dwell_scale) + 
+   pweibull(days_hi, shape=weibull_shape, scale=dwell_scale))
+
+  escaped_yield <- sum(F_by_day)*(1/tiny_delta) #day width in years
+  #convert to slip rate: how many missed
+  total_yield <- screen_interval #total incidence is just duration
+  slip_rate <- escaped_yield/total_yield
+  slip_rate
+}
+
+
+#use integrated weibull cumulative distribution functions
+#"exact" solution to slip rate
+exact_slip_rate_from_dwell <- function(dwell_model_all_df,screen_interval=1,weibull_shape=1){
+  
+   #slip is "before clinical"
+  #slip_clinical = "at stage of clinical detection"
+  #assume expected is half-duration of stage of clinical detection
+  #completeness in modeling
+  dwell_slip_df <- dwell_model_all_df %>%
+  mutate(
+  slip = sapply(dwell,function(z){integrate_slip_rate(screen_interval,weibull_shape,z)}),
+  slip_clinical=sapply(dwell*0.5,function(z){integrate_slip_rate(screen_interval,weibull_shape,z)}),
+  screen_interval=screen_interval
+       )
+  
+  dwell_ideal_df  <-  dwell_slip_df %>%
+    filter(scenario==1) %>%
+    mutate(dwell=10000,slip=0,slip_clinical=0,scenario=as.integer(0),screen_interval=NA)
+  
+  #add "scenario 0" perfect interception
+  dwell_slip_df <- bind_rows(dwell_slip_df,dwell_ideal_df)
+  dwell_slip_df
+}
+
+```
+
+
+## Define functions: Run intercept model {-} 
+
+```{r run-intercept-model}
+
+xStage<-c("I","II","III","IV")
+
+#okay: this multiplies a final destination IR: 
+# all the people who wind up at some final destination
+#so everything scales within itself
+#assume stage IV destination unless the cases are stopped earlier
+effective_sens <- function(cumulative_sens, dwell_detect_rate){
+  detect<-rep(0,length(cumulative_sens))
+  miss<-0
+  i<-1
+  arrive<-cumulative_sens[i]
+  live<-arrive+miss
+  detect[1]<-cumulative_sens[i]*dwell_detect_rate[i]
+  miss<-cumulative_sens[i]*(1-dwell_detect_rate[i])
+  if (length(cumulative_sens)>1){
+    for (i in 2:length(cumulative_sens))
+    {
+      #newly detectable cases
+      arrive<-cumulative_sens[i]-cumulative_sens[i-1]
+      live<-arrive+miss #currently detectable is newly detectable + missed at earlier stages
+      detect[i]<-live*dwell_detect_rate[i] #would detect all of them, but miss some of them due to timing
+      miss<-live*(1-dwell_detect_rate[i])
+    }
+  }
+  arrive<-1-cumulative_sens[i] #final miss
+  live=arrive+miss
+  #detect[1-4] is detected at each stage
+  #clinical detect= miss[4]
+  list(intercept=detect,clinical=live)
+}#effective_sens
+
+add_survival_to_stage_shift <- function(incidence_sens_source,incidence_intercepted){
+  #add survival: original before shift, and shifted survival
+  #using 5 year survival as "crude estimate of statistical cure"
+  #unlikely to be affected by 1-2 year lead time significantly
+  #extract survival by 'stage_at_detection'
+
+  just_survival <- incidence_sens_source %>%
+    mutate(prequel=match(Stage,xStage)) %>%
+    select(Cancer,prequel,Survival) %>%
+    filter(!is.na(prequel))
+  
+  intercept_survival <- incidence_intercepted %>%
+    left_join(just_survival %>%
+                select(Cancer,prequel,s_survival=Survival),by=c("Cancer","prequel")) %>% 
+    left_join(just_survival %>% 
+                select(Cancer,clinical=prequel,c_survival=Survival),by=c("Cancer","clinical")) 
+  
+  #compute absolute numbers rather than local rates
+  intercept_survival<-intercept_survival %>%
+    mutate(original_survivors=c_survival*caught,
+           shifted_survivors=s_survival*caught,
+           original_deaths=(1-c_survival)*caught,
+           shifted_deaths=(1-s_survival)*caught)
+  intercept_survival
+}
+
+compute_effective_detection_with_slip <- function(incidence_sens_source, dwell_slip_df, 
+  active_slip_clinical){
+  #just detection rate
+  just_detection <- incidence_sens_source %>%
+    mutate(number_stage=match(Stage,xStage),
+           prequel=number_stage,
+           detect=iso_sens) %>%
+    select(Cancer,prequel,detect)
+  
+  #differences - marginal detection rate of remaining cases 
+  #given that cases already detectable at earlier stage were removed or treated separately
+  just_delta <- just_detection %>%
+    group_by(Cancer) %>%
+    arrange(prequel,.by_group=TRUE) %>%
+    mutate(delta_detect=diff(c(0,detect))) %>%
+    ungroup() %>%
+    arrange(Cancer)
+  
+  #modify using slip rate
+  #intercept using slip rate
+  #slip to next
+  
+  #include modification of slip rate by clinical stage of detection
+  #extra 'parameter'
+  just_slip_delta_extra <- just_delta %>%
+    left_join(dwell_slip_df %>% 
+                #filter(scenario==dw_scenario) %>% 
+                select(Cancer,prequel=number_stage,slip,slip_clinical),by=c("Cancer","prequel")) %>%
+    filter(!is.na(prequel)) %>%
+    mutate(unroll=4) %>%
+    uncount(unroll,.id="clinical") %>%
+    filter(clinical>=prequel) %>%
+    mutate(modified_slip=case_when(prequel<clinical ~ slip,
+                                   prequel==clinical & active_slip_clinical ~ slip_clinical,
+                                   prequel==clinical & !active_slip_clinical ~ slip,
+                                   TRUE ~ 1.0)) %>%
+    arrange(Cancer,clinical,prequel) %>%
+    group_by(Cancer,clinical) %>%
+    mutate(sens_slip=effective_sens(detect,1-modified_slip)$intercept) %>%
+    ungroup()
+  
+  just_slip_delta_extra
+}
+
+
+
+
+run_intercept_model <- function(incidence_sens_source, dwell_slip_df, active_slip_clinical=TRUE){
+  
+  #set up all previous stages where cases could be intercepted given clinical detection
+  incidence_set<-incidence_sens_source %>% 
+    filter(Stage %in% xStage) %>%
+    select(Cancer,Stage,IR) %>%
+    mutate(number_stage=match(Stage,xStage),
+           clinical=number_stage,
+           unroll=number_stage) %>%
+    uncount(unroll,.id="prequel")
+  
+  #compute effective detection by stage conditional on slip rate model
+  just_slip_delta_extra <- compute_effective_detection_with_slip(incidence_sens_source,
+                                                               dwell_slip_df, 
+                                                               active_slip_clinical)
+  
+  #updated: split effective slip rate in 2 for last stage
+  #as the "time spent" should be halved
+  #this involves a more elaborate model
+  #note that "lives saved" is not affected, because those individuals are not stage shifted
+  #this assumes that 'stage 4' is just automatically halved anyway
+  incidence_intercepted <- incidence_set %>%
+    left_join(just_slip_delta_extra,by=c("Cancer","clinical","prequel")) %>% 
+    mutate(unroll=1+(number_stage==prequel)) %>%
+    uncount(unroll,.id="found_clinical") %>%
+    group_by(Cancer,clinical) %>%
+    mutate(c_slip=cumsum(sens_slip),
+           delta_detect=case_when(
+             found_clinical==2 ~ 1-c_slip+sens_slip, #anyone not caught by new screening must be found clinically
+             TRUE ~ sens_slip)) %>%
+    mutate(caught=IR*delta_detect) %>%
+    ungroup()
+  
+  intercept_survival <- add_survival_to_stage_shift(incidence_sens_source,incidence_intercepted)
+  
+  intercept_survival
+}
+
+
+run_excluded_model <- function(excluded_source){
+  #fills out individuals not staged as they are not modeled
+  excluded_survival <- excluded_source %>%
+    mutate(number_stage=0,
+           clinical=0,
+           prequel=0,
+           detect=0.0,
+           delta_detect=0.0,
+           slip=1.0,
+           slip_clinical=1.0,
+           modified_slip=1.0,
+           sens_slip=0.0,
+           found_clinical=2,
+           c_slip=1.0,
+           caught=IR,
+           s_survival=Survival,
+           c_survival=Survival) %>%
+    mutate(original_survivors=c_survival*caught,
+           shifted_survivors=s_survival*caught,
+           original_deaths=(1-c_survival)*caught,
+           shifted_deaths=(1-s_survival)*caught) %>%
+    select(Cancer,Stage,IR,
+           number_stage,clinical,prequel,
+           detect,delta_detect,
+           slip,slip_clinical,modified_slip,sens_slip,
+           found_clinical,c_slip,
+           caught,
+           s_survival,c_survival,
+           original_survivors,shifted_survivors,
+           original_deaths,shifted_deaths)
+  
+  excluded_survival
+ }
+
+```
+
+
+## Continue 
+
+
+```{r m1a-Basic-interception-model}
+
+dwell_standard_model <- load_seer_dwell_model()
+
+#read in standard performance numbers
+BASE_DETECT_CODE <- "CCGA2"
+
+#load and clean manuscript sensitivity
+iso_sens_joined <- read_tsv(
+  file.path(tables_DIR, paste0(INPUT_DATE_CODE, "_iso_seer_manuscript.tsv")))
+
+
+#remove everything not staged for initial analysis
+incidence_sens_source <- iso_sens_joined %>% 
+  filter(Stage!="NotStaged") %>%
+  mutate(iso_sens=sens)
+
+#keep not staged for adding back
+incidence_excluded_source <- iso_sens_joined %>%
+  filter(Stage=="NotStaged")
+
+
+##dwell time
+#annual screening examined here for sensitivity
+#generate exact slip rates
+dwell_slip_rate <- 
+  exact_slip_rate_from_dwell(dwell_standard_model,screen_interval=1,weibull_shape=1)
+
+#generate prevalent slip rate by clever use of very large interval and multiplying expectation
+long_interval <- 100
+dwell_prevalent_rate <- 
+  exact_slip_rate_from_dwell(dwell_standard_model,screen_interval=long_interval,weibull_shape=1)
+
+#no screening is happening, therefore nothing is ever intercepted
+dwell_no_rate <- dwell_slip_rate %>% 
+  mutate(slip=1.0,
+         slip_clinical=1.0)
+
+#accumulate 4 dwell scenarios
+# prevalent and incident results
+# plus perfect screening
+# plus no screening
+my_list <- vector("list",4*2+2)
+k <- 1
+
+for (dw_scenario in 1:4){
+  print(k)
+
+  local_performance <- run_intercept_model(
+    incidence_sens_source,
+    dwell_slip_rate %>% 
+       filter(scenario==dw_scenario))
+
+  local_excluded <- run_excluded_model(incidence_excluded_source) #does not depend on scenario
+
+  local_performance <- bind_rows(local_performance,local_excluded)
+  
+  incident_performance <- local_performance
+  local_performance <- local_performance %>%
+    mutate(screen_interval=1,
+           dw_scenario=dw_scenario,
+           scan="incident")
+  
+  my_list[[k]] <- local_performance
+  k <- k+1
+  
+  #generate prevalent round starting off screening
+  #only going to use caught by cfdna and combine with incident
+  #because expected rates = average over all years, we can reverse identity
+  #to obtain first-year screen by multiplying
+  #rather than doing a special integral for prevalent rounds
+  prevalent_performance <- run_intercept_model(
+    incidence_sens_source,
+    dwell_prevalent_rate %>% 
+        filter(scenario==dw_scenario))
+  
+  prevalent_performance <- prevalent_performance %>% 
+    filter(found_clinical==1) %>%
+    mutate(caught=caught*long_interval,
+           original_survivors=original_survivors*long_interval,
+           shifted_survivors=shifted_survivors*long_interval,
+           original_deaths=original_deaths*long_interval,
+           shifted_deaths=shifted_deaths*long_interval) %>%
+    bind_rows(incident_performance %>% 
+                filter(found_clinical==2))
+  
+  prevalent_performance <- prevalent_performance %>%
+    mutate(screen_interval=1,
+           dw_scenario=dw_scenario,
+           scan="prevalent")
+  my_list[[k]] <- prevalent_performance
+  k <- k+1
+}
+
+```
+
+Continue (this code is pretty much intractable, tidyversy notwithstanding...)
+
+```{r m1a-Basic-interception-model-2}
+
 #this is the MIS scenario where schedule sensitivity is perfect so slip rates are 0
 optimal_performance <- run_intercept_model( 
   incidence_sens_source,
@@ -32,4 +831,70 @@ text_options_df <- all_options_df %>%
          screen_interval,dw_scenario,scan) %>%
   mutate(mode_found=c("cfdna","soc")[found_clinical],
          aggressive=c("MIS","VSlow","Slow","Fast","AggFast")[dw_scenario+1])
+
+#write to permanent archive of current data
+write_tsv(text_options_df,
+ file.path(reports_DIR, paste0(DATE_CODE, BASE_DETECT_CODE, "_text_data_set.tsv")))
+
+```
+
+END - 01_generate_basic_interception_scenarios.R
+
+# summaries for dwell time groups
+
+generate useful summaries for dwell time groups
+that will be used later for making tables
+
+
+also used for tables in supplemental data
+
+```{r m1a-utility-describe-dwell-groups}
+
+# NOT SURE WHY WE NEED TO REPEAT THIS
+dwell_standard_model <- load_seer_dwell_model()
+
+#human readable short description
+text_levels<-c("MIS","VSlow","Slow","Fast","AggFast")
+
+
+text_cancer_groups<-dwell_standard_model %>% 
+  group_by(dwell_group) %>% 
+  summarize(cancer=paste(unique(Cancer),collapse=",")) %>%
+  ungroup()
+
+text_duration_groups<-dwell_standard_model %>% 
+  group_by(dwell_group,scenario,Stage) %>% 
+  summarize(mdwell=dwell[1]) %>%
+  ungroup() %>%
+  pivot_wider(names_from=Stage,values_from=mdwell) %>%
+  mutate(scenario=text_levels[scenario+1]) 
+
+write_tsv(text_cancer_groups, 
+ file.path(reports_DIR, "text_cancer_groups.tsv"))
+
+write_tsv(text_duration_groups, 
+ file.path(reports_DIR, "text_duration_groups.tsv"))
+
+compact_duration_groups<-text_duration_groups %>%
+  mutate(text_duration=paste(I,II,III,IV,sep=",")) %>%
+  select(dwell_group,scenario,text_duration) %>%
+  pivot_wider(names_from=scenario,values_from=text_duration)
+
+write_tsv(compact_duration_groups,
+ file.path(reports_DIR, "compact_duration_groups.tsv"))
+
+summary_duration_groups<-dwell_standard_model %>%
+  group_by(scenario,Stage) %>% 
+  summarize(dwell_range=paste(c(min(dwell),max(dwell)),collapse="-")) %>%
+  ungroup() %>%
+  filter(Stage=="I") %>% 
+  mutate(aggressive=text_levels[scenario+1]) %>%
+  bind_rows(tibble(scenario=0,Stage="I",dwell_range="NONE",aggressive="MIS")) %>%
+  arrange(scenario)
+
+write_tsv(summary_duration_groups,
+ file.path(reports_DIR, "summary_duration_groups.tsv"))
+
+```
+
 
